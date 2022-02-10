@@ -49,11 +49,16 @@ async def queue(ctx):
     if ctx.guild not in settings or len(settings[ctx.guild].queue) == 0:
         return await ctx.send("There is nothing in the queue.")
 
-    result = ""
-    for x in settings[ctx.guild].queue:
-        result += x + "\n"
+    content = "```\n"
+    count = 1
+    for song in settings[ctx.guild].queue:
+        content += f"{count}. {song}\n"
+        count += 1
 
-    return await ctx.send(result)
+    result = discord.Embed()
+    result.title = "Queue"
+    result.description = content + "\n```"
+    return await ctx.send(embed=result)
 
 
 @bot.command()
@@ -71,11 +76,14 @@ async def play(ctx: commands.Context, *, arg):
         settings[ctx.guild] = MusicSettings()
 
     settings[ctx.guild].queue.append(arg)
-    return await process_queue(ctx, client)
+    if len(settings[ctx.guild].queue) == 1:
+        return await process_queue(ctx, client)
+    else:
+        return await ctx.send(f"Added \"{arg}\" to queue!")
 
 async def process_queue(ctx, client):
-    if client.is_playing() or settings[ctx.guild].is_downloading:
-        return
+    #if client.is_playing() or settings[ctx.guild].is_downloading:
+        #return
 
     ydl_opts["outtmpl"] = f"downloads/{ctx.message.id}.%(ext)s"
     
@@ -93,7 +101,10 @@ async def process_queue(ctx, client):
     except Exception as ex:
         settings[ctx.guild].queue.remove(arg)
         settings[ctx.guild].is_downloading = False
-        await ctx.send("An exception was raised of type {0} while downloading the video.".format(type(ex)))
+        if ex is youtube_dl.utils.DownloadError:
+            await ctx.send("youtube-dl was unable to download the video.")
+        else:
+            await ctx.send("An exception was raised of type {0} while downloading the video.".format(type(ex)))
         raise
 
     try:
@@ -110,13 +121,16 @@ def song_complete(ctx, client):
     settings[ctx.guild].queue.pop(0)
 
     # Delete the song
+    filename = settings[ctx.guild].current_filename
     try:
-        os.remove(settings[ctx.guild].current_filename)
+        os.remove(filename)
+        logging.info("Successfully deleted " + filename)
     except:
-        logging.error(f"Failed to delete song: {settings[ctx.guild].current_filename}")
+        logging.error(f"Failed to delete song: {filename}")
 
     # Queue is empty, leave the voice channel
     if len(settings[ctx.guild].queue) == 0:
+        ctx.send("Queue finished.")
         coro = client.disconnect()
     else:
         coro = process_queue(ctx, client)
