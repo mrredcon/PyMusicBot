@@ -20,7 +20,9 @@ ydl_opts = {
         'key': 'FFmpegExtractAudio',
         'preferredcodec': 'opus',
         'preferredquality': '0',
-    }]
+    }],
+    'noplaylist': 'True',
+    'playlist_items': '1'
 }
 
 def find_voice_client(guild) -> discord.VoiceClient:
@@ -61,6 +63,31 @@ async def queue(ctx):
     return await ctx.send(embed=result)
 
 @bot.command()
+async def playnext(ctx, arg):
+    arg = int(arg)
+    if (arg <= 0):
+        return
+
+    if ctx.guild not in settings or len(settings[ctx.guild].queue) == 0:
+        return await ctx.send("There is nothing in the queue.")
+    
+    queue = settings[ctx.guild].queue
+    
+    if len(queue) == 1:
+        return await ctx.send("The only item in the queue is already playing.")
+
+    arg -= 1
+    if arg == 0:
+        return await ctx.send("I'm already playing that!")
+    if arg > len(queue)-1:
+        return await ctx.send("The queue isn't that long!")
+    song = queue[arg]
+    queue.remove(song)
+    queue.insert(1, song)
+    return await ctx.send(f"Moved {song} to the next in line.")
+
+
+@bot.command()
 async def remove(ctx, arg):
     arg = int(arg)
     if arg <= 0:
@@ -75,8 +102,7 @@ async def remove(ctx, arg):
             settings[ctx.guild].queue.pop(i)
             return await ctx.send(f"Sucessfully removed item number {i+1} from the queue.")
         except:
-            await ctx.send(f"Failed to remove item number {i+1} from the queue.")
-            raise
+            return await ctx.send(f"Failed to remove item number {i+1} from the queue.")
 
 @bot.command()
 async def play(ctx: commands.Context, *, arg):
@@ -99,9 +125,6 @@ async def play(ctx: commands.Context, *, arg):
         return await ctx.send(f"Added \"{arg}\" to queue!")
 
 async def process_queue(ctx, client):
-    #if client.is_playing() or settings[ctx.guild].is_downloading:
-        #return
-
     ydl_opts["outtmpl"] = f"downloads/{ctx.message.id}.%(ext)s"
     
     arg = settings[ctx.guild].queue[0]
@@ -161,6 +184,8 @@ def song_complete(ctx, client):
 @bot.command()
 async def skip(ctx):
     client = find_voice_client(ctx.guild)
+    if client is None:
+        return
     
     if client.is_playing():
         client.stop()
