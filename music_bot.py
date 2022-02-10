@@ -40,7 +40,7 @@ async def repeat(ctx: commands.Context):
     if ctx.guild not in settings:
         return await ctx.send("Settings not found for this guild (has any music been played yet?)")
 
-    settings[ctx.guild].loop = not settings[ctx.guild.loop]
+    settings[ctx.guild].loop = not settings[ctx.guild].loop
 
     return await ctx.send(f"Repeat set to {settings[ctx.guild].loop}.")
 
@@ -60,6 +60,23 @@ async def queue(ctx):
     result.description = content + "\n```"
     return await ctx.send(embed=result)
 
+@bot.command()
+async def remove(ctx, arg):
+    arg = int(arg)
+    if arg <= 0:
+        return
+    i = arg - 1
+    if ctx.guild not in settings or len(settings[ctx.guild].queue) == 0:
+        return await ctx.send("There is nothing in the queue.")
+    elif len(settings[ctx.guild].queue) == 1 or i == 0:
+        return await skip(ctx)
+    else:
+        try:
+            settings[ctx.guild].queue.pop(i)
+            return await ctx.send(f"Sucessfully removed item number {i+1} from the queue.")
+        except:
+            await ctx.send(f"Failed to remove item number {i+1} from the queue.")
+            raise
 
 @bot.command()
 async def play(ctx: commands.Context, *, arg):
@@ -118,6 +135,10 @@ def song_complete(ctx, client):
     if len(settings[ctx.guild].queue) == 0:
         return
 
+    if settings[ctx.guild].loop:
+        client.play(discord.FFmpegOpusAudio(settings[ctx.guild].current_filename), after=lambda err : song_complete(ctx, client))
+        return
+
     settings[ctx.guild].queue.pop(0)
 
     # Delete the song
@@ -130,7 +151,6 @@ def song_complete(ctx, client):
 
     # Queue is empty, leave the voice channel
     if len(settings[ctx.guild].queue) == 0:
-        ctx.send("Queue finished.")
         coro = client.disconnect()
     else:
         coro = process_queue(ctx, client)
@@ -142,7 +162,7 @@ def song_complete(ctx, client):
 async def skip(ctx):
     client = find_voice_client(ctx.guild)
     
-    if client is not None:
+    if client.is_playing():
         client.stop()
 
 
