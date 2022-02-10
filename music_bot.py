@@ -46,18 +46,20 @@ async def repeat(ctx: commands.Context):
 
 @bot.command()
 async def queue(ctx):
-    if ctx.guild not in settings:
-        return
+    if ctx.guild not in settings or len(settings[ctx.guild].queue) == 0:
+        return await ctx.send("There is nothing in the queue.")
+
     result = ""
     for x in settings[ctx.guild].queue:
-        result = x + "\n"
+        result += x + "\n"
+
     return await ctx.send(result)
 
 
 @bot.command()
 async def play(ctx: commands.Context, *, arg):
     client = find_voice_client(ctx.message.guild)
-    if client is None and not client.is_connected():
+    if client is None or not client.is_connected():
         try:
             vc = ctx.author.voice.channel
             client = await vc.connect()
@@ -72,7 +74,7 @@ async def play(ctx: commands.Context, *, arg):
     return await process_queue(ctx, client)
 
 async def process_queue(ctx, client):
-    if client.is_playing():
+    if client.is_playing() or settings[ctx.guild].is_downloading:
         return
 
     ydl_opts["outtmpl"] = f"downloads/{ctx.message.id}.%(ext)s"
@@ -83,23 +85,29 @@ async def process_queue(ctx, client):
     
     try:
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            result = await bot.loop.run_in_executor(None, ydl.download, [arg])
+            settings[ctx.guild].is_downloading = True
+            await bot.loop.run_in_executor(None, ydl.download, [arg])
+            settings[ctx.guild].is_downloading = False
 
         await ctx.send("DL finished, joining VC")
     except Exception as ex:
         settings[ctx.guild].queue.remove(arg)
+        settings[ctx.guild].is_downloading = False
         await ctx.send("An exception was raised of type {0} while downloading the video.".format(type(ex)))
         raise
 
     try:
         file = f"downloads/{ctx.message.id}.opus"
-        client.play(discord.FFmpegOpusAudio(file), after=lambda : song_complete(ctx, client))
+        client.play(discord.FFmpegOpusAudio(file), after=lambda err : song_complete(ctx, client))
         settings[ctx.guild].current_filename = file
     except:
         await ctx.send("Failed to play audio. (am I in a voice channel?)")
         
 def song_complete(ctx, client):
-    settings[ctx.guild].queue.remove(0)
+    if len(settings[ctx.guild].queue) == 0:
+        return
+
+    settings[ctx.guild].queue.pop(0)
 
     # Delete the song
     try:
@@ -108,12 +116,20 @@ def song_complete(ctx, client):
         logging.error(f"Failed to delete song: {settings[ctx.guild].current_filename}")
 
     # Queue is empty, leave the voice channel
-    if settings[ctx.guild].queue.count() == 0:
+    if len(settings[ctx.guild].queue) == 0:
         coro = client.disconnect()
     else:
         coro = process_queue(ctx, client)
 
     fut = asyncio.run_coroutine_threadsafe(coro, bot.loop)
     fut.result()
+
+@bot.command()
+async def skip(ctx):
+    client = find_voice_client(ctx.guild)
+    
+    if client is not None:
+        client.stop()
+
 
 bot.run(os.environ["MusicToken"])
